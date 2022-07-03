@@ -1,38 +1,40 @@
-const { User, VerificationToken } = require('../models/index');
-const {generateToken} = require('../utils/index');
+const { User, VerificationToken, PasswordReset, Balance } = require('../models/index');
 const bcrypt  = require("bcrypt");
-const {sendVerificationEmail} = require('../utils/emailVerify.util');
-const random = require('crypto').randomBytes(16).toString('hex');
+const {sendVerificationEmail, sendPasswordResetEmail} = require('../utils/email.util');
+const crypto = require('crypto');
+const passport = require('passport');
+const jwt = require('jsonwebtoken');
 
-// login controller
-exports.login = async (req, res) => {
-    try {
-        const {email, password} = req.body;
-        // check if email is signed up or not
-        const user = await User.findAll({
-            where: {
-                email: email
-            }
-        })
-
-        if(user.length==0) {
-            return res.status(404).send({message : "Email is not signed up."});
+exports.login =  (req, res, next) => {
+    passport.authenticate('local', (err, user, info) => {
+        if (err) throw err;
+        if (!user) res.status(404).send('Invalid Credentials');
+        else {
+            req.logIn(user, (err) => {
+                if (err) res.send({ err });
+                console.log(req.user);
+                const token = jwt.sign(
+                    {
+                        id: req.user.id,
+                        email: req.user.email
+                    },
+                    process.env.ACCESS_TOKEN_SECRET, {
+                        expiresIn: 60 * 60 * 24 // expires in 24 hours
+                    }
+                );
+                res.header('auth-token', token).send(token);
+            });
         }
-
-        // if email is signed up then compare the stored password and input password
-        const validPassword = await bcrypt.compare(password, user[0].password);
-        if(!validPassword) {
-            return res.status(404).send({message : "Credentials do not match."});
-        }
-
-        // generate token and send response.
-        const accessToken = generateToken(user[0]);
-        res.json({message: "User logged in", accessToken: accessToken, user: user})
-        
-    } catch (error) {
-        res.json({message : error.message});
-    }
+    })(req, res, next);
 }
+
+exports.isAuthenticated = async (req, res) => {
+    const authenticated = typeof req.user !== 'undefined';
+    console.log(authenticated);
+    res.status(200).json({
+      authenticated
+    });
+};
 
 // signup controller
 exports.signUp = async (req, res) => {
@@ -56,13 +58,18 @@ exports.signUp = async (req, res) => {
 
         // store the user information and send the response.
         user = await User.create({...req.body, password: hashedPassword});
+        const randomToken = crypto.randomBytes(16).toString('hex');
         info = await VerificationToken.create({
             userId: user.id,
-            token: random
+            token: randomToken
         });
 
+        let balance = await Balance.create({
+            userId: user.id
+        });
+        console.log(balance);
         sendVerificationEmail(user.email, info.token);
-        return res.status(200).json(`${user.email} account created successfully`);
+        return res.status(200).json(`${user.email} account created successfully. Verify your account`);
 
     } catch (error) {
         res.json({ message: error.message });
@@ -82,7 +89,7 @@ exports.verifyUser = async (req, res) => {
         }
 
         // find the token of verification link in the database.
-        let foundToken = await  VerificationToken.findAll({
+        let foundToken = await  VerificationToken.findOne({
                 where: { token: req.params.token }
             })
 
@@ -100,5 +107,75 @@ exports.verifyUser = async (req, res) => {
         }
     } catch(err) {
         return res.status(404).json(err);
+    }
+}
+
+// send mail for password reset
+exports.sendResetLink = async (req, res) => {
+   const email = req.body.email;
+   console.log(email);
+   try {
+            const randomToken = crypto.randomBytes(16).toString('hex');
+            await PasswordReset.create({email: email, token:  randomToken})
+            sendPasswordResetEmail(email, randomToken);
+            return res.send("Please check your email for the next step");
+   } catch (error) {
+       res.send(error.message)
+   }
+}
+
+// link to verify password reset token
+exports.verifyPasswordReset = async (req, res) => {
+    try {
+            const user = await PasswordReset.findOne({
+                where: {token : req.params.token}
+            })
+            console.log(user);
+            if(user) {
+                return res.send({email: user.email});
+            }
+
+            return res.send({message: "Some error occured"});
+
+    } catch (error) {
+            res.status(404).send(error.message)
+    }
+}
+
+// change password
+exports.changePassword = async (req, res) => {
+    const {
+        email,
+        token,
+        newpassword
+    } = req.body;
+
+    try {
+
+        let user = await PasswordReset.findOne({
+            where: {email: email, token : token}
+        })
+
+        if (user.length === 0) {
+            return res.status(404).send("an error occured")
+        }
+
+        //hash new password
+
+        var hashedPassword = bcrypt.hashSync(newpassword.trim(), 10);
+
+        //update the users table!
+
+        user = await User.update({password: hashedPassword}, {
+                where: {email: email}
+            });
+        //clear the record in "password_reset" table for security
+
+        await PasswordReset.destroy({
+            where: {email: email}
+        })
+        return res.send("password successfully changed!")
+    } catch (error) {
+        res.send(error.message)
     }
 }

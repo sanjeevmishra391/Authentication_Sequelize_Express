@@ -2,19 +2,19 @@ const {DataTypes} = require('sequelize');
 const db = require('./index');
 
 module.exports = (sequelize, Sequelize) => {
-    const VerificationToken = sequelize.define('verification_token', {
-            userId: DataTypes.INTEGER,
+    const PasswordReset = sequelize.define('password_reset', {
+            email: DataTypes.STRING,
             token: DataTypes.STRING
         }, {
         classMethods: {
             associate: function() {
                 VerificationToken.belongsTo(db.User, {
                     as: "user",
-                    foreignKey: "userId",
+                    foreignKey: "email",
                     foreignKeyConstraint: true
                 });
             }
         }
     });
-    return VerificationToken;
+    return PasswordReset;
 };

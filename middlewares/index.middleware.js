@@ -14,3 +14,9 @@ exports.authenticateToken = (req, res, next) => {
         })
     }
 }
+
+exports.authenticatedUser = (req, res, next) => {
+    if(!req.isAuthenticated()) res.status(403).send({"error" : "Not authenticated!"});
+
+    next();
+}

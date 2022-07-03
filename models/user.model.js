@@ -1,5 +1,6 @@
 const {DataTypes} = require('sequelize');
-const {VerificationToken} = require('./index');
+const db = require('./index');
+
 module.exports = (sequelize, Sequelize) => {
     const User = sequelize.define("user", {
       firstName: {
@@ -11,7 +12,11 @@ module.exports = (sequelize, Sequelize) => {
       },
       email: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: false,
+        unique: true,
+        validate:{
+          isEmail: {msg: "It must be a valid Email address"},
+        }
       },
       password: {
         type: DataTypes.STRING,
@@ -45,12 +50,19 @@ module.exports = (sequelize, Sequelize) => {
     }, {
       classMethods: {
         associate: function() {
-         User.hasOne(VerificationToken, {
+         User.hasOne(db.VerificationToken, {
               as: 'verificationtoken',
               foreignKey: 'userId',
               foreignKeyConstraint: true,
             });
-        }
+        }, 
+        associate: function() {
+          User.hasOne(db.PasswordReset, {
+               as: 'passwordreset',
+               foreignKey: 'email',
+               foreignKeyConstraint: true,
+             });
+         }
       }
     });
     return User;
